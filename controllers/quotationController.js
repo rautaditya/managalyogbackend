@@ -4,7 +4,7 @@ const { generatePDF } = require('../utils/invoicePDF');
 // Helper: generate quotation number
 const genQuotationNumber = async () => {
   const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM quotations');
-  return `QUO-${String(rows[0].cnt + 1).padStart(5, '0')}`;
+  return `MYE-${String(rows[0].cnt + 1).padStart(5, '0')}`;
 };
 
 // Helper: generate invoice number (for convert)
