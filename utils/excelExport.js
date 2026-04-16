@@ -8,20 +8,32 @@ const exportTransactionsToExcel = async (transactions, siteName = 'All Sites') =
   const sheet = workbook.addWorksheet(`${siteName} - Transactions`);
 
   sheet.columns = [
-    { header: 'Date',         key: 'date',         width: 14 },
-    { header: 'Name',         key: 'name',         width: 22 },
-    { header: 'Description',  key: 'description',  width: 30 },
-    { header: 'Type',         key: 'type',         width: 8  },
-    { header: 'Amount (Rs.)', key: 'amount',       width: 14 },
-    { header: 'Payment Mode', key: 'payment_mode', width: 14 },
-    { header: 'Note',         key: 'note',         width: 25 },
+    { header: '', key: 'date',         width: 14 },
+    { header: '', key: 'name',         width: 22 },
+    { header: '', key: 'description',  width: 30 },
+    { header: '', key: 'type',         width: 8  },
+    { header: '', key: 'amount',       width: 14 },
+    { header: '', key: 'payment_mode', width: 14 },
+    { header: '', key: 'note',         width: 25 },
   ];
 
-  // Style header
-  sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  sheet.getRow(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
-  sheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
-  sheet.getRow(1).height = 22;
+  // ── Row 1: MangalYog Enterprises title ──
+  sheet.insertRow(1, ['MangalYog Enterprises', '', '', '', '', '', '']);
+  sheet.mergeCells('A1:G1');
+  const titleCell = sheet.getCell('A1');
+  titleCell.value = 'MangalYog Enterprises';
+  titleCell.font = { bold: true, size: 14, color: { argb: 'FFFFA07A' } }; // faint orange (Light Salmon)
+  titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+  sheet.getRow(1).height = 28;
+
+  // ── Row 2: Column headers ──
+  const headers = ['Date', 'Name', 'Description', 'Type', 'Amount (Rs.)', 'Payment Mode', 'Note'];
+  sheet.insertRow(2, headers);
+  const headerRow = sheet.getRow(2);
+  headerRow.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
+  headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  headerRow.height    = 22;
 
   let totalIn = 0, totalOut = 0;
 
@@ -46,15 +58,15 @@ const exportTransactionsToExcel = async (transactions, siteName = 'All Sites') =
     else                    totalOut += parseFloat(txn.amount);
   });
 
-  // Summary
+  // ── Summary rows ──
   sheet.addRow([]);
-  const r1 = sheet.addRow(['', '', '', 'Total IN',  totalIn,          '', '']);
-  const r2 = sheet.addRow(['', '', '', 'Total OUT', totalOut,         '', '']);
-  const r3 = sheet.addRow(['', '', '', 'Balance',   totalIn - totalOut, '', '']);
+  const r1 = sheet.addRow(['', '', '', 'Total IN',  totalIn,             '', '']);
+  const r2 = sheet.addRow(['', '', '', 'Total OUT', totalOut,            '', '']);
+  const r3 = sheet.addRow(['', '', '', 'Balance',   totalIn - totalOut,  '', '']);
 
   [r1, r2, r3].forEach((r) => {
     r.getCell(5).numFmt = '#,##0.00';
-    r.getCell(5).font = { bold: true };
+    r.getCell(5).font   = { bold: true };
   });
   r1.getCell(4).font = { bold: true, color: { argb: 'FF16A34A' } };
   r2.getCell(4).font = { bold: true, color: { argb: 'FFDC2626' } };
