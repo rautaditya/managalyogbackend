@@ -247,17 +247,48 @@ function drawToFrom(doc, data, L, R) {
     .fillColor(BLACK)
     .text('TO:', L, startY, { lineBreak: false });
 
+  let toY = startY + 14;
+
   doc.font('Helvetica-Bold')
     .fontSize(9.5)
     .fillColor(BLACK)
-    .text(site.name || '', L, startY + 14, { width: 260, lineBreak: false });
+    .text(site.name || '', L, toY, { width: 250 });
+
+  toY = doc.y + 2;
+
+  const toLines = [
+    site.address ? `Address - ${site.address}` : '',
+    site.owner_name ? `Owner Name - ${site.owner_name}` : '',
+    site.phone ? `Phone - ${site.phone}` : '',
+    site.gst_number ? `GST Number - ${site.gst_number}` : '',
+    site.project_name ? `Project Name - ${site.project_name}` : '',
+    site.status ? `Status - ${site.status}` : ''
+  ].filter(Boolean);
 
   doc.font('Helvetica')
     .fontSize(9)
-    .fillColor(BLACK)
-    .text(site.address || '', L, startY + 27, { width: 260, lineBreak: false });
+    .fillColor(BLACK);
 
-  const toLineY = startY + 48;
+  toLines.forEach(line => {
+    doc.text(line, L, toY, { width: 250 });
+    toY = doc.y + 2;
+  });
+
+  if (site.notes) {
+    doc.font('Helvetica-Bold')
+      .fontSize(9)
+      .fillColor(BLACK)
+      .text('Notes -', L, toY, { lineBreak: false });
+
+    doc.font('Helvetica')
+      .fontSize(9)
+      .fillColor(BLACK)
+      .text(` ${site.notes}`, L + 38, toY, { width: 212 });
+
+    toY = doc.y + 2;
+  }
+
+  const toLineY = toY + 8;
   doc.moveTo(L, toLineY)
     .lineTo(240, toLineY)
     .lineWidth(0.7)
