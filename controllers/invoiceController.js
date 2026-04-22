@@ -10,7 +10,8 @@ const genInvoiceNumber = async () => {
 // Helper: get invoice with items and site
 const getFullInvoice = async (id) => {
   const [invRows] = await pool.query(
-    `SELECT i.*, s.name, s.address, s.owner_name, s.phone, s.gst_number, s.project_name
+    `SELECT i.*, COALESCE(s.name, i.client_name) AS display_name,
+            s.address, s.owner_name, s.phone, s.gst_number, s.project_name
      FROM invoices i LEFT JOIN sites s ON i.site_id = s.id WHERE i.id = ?`,
     [id]
   );
@@ -25,9 +26,13 @@ const getFullInvoice = async (id) => {
   return {
     ...inv,
     site: {
-      id: inv.site_id, name: inv.name, address: inv.address,
-      owner_name: inv.owner_name, phone: inv.phone,
-      gst_number: inv.gst_number, project_name: inv.project_name,
+      id: inv.site_id,
+      name: inv.display_name,
+      address: inv.address,
+      owner_name: inv.owner_name,
+      phone: inv.phone,
+      gst_number: inv.gst_number,
+      project_name: inv.project_name,
     },
     items,
   };
@@ -37,8 +42,8 @@ const getFullInvoice = async (id) => {
 const getAllInvoices = async (req, res) => {
   try {
     const { site_id, status } = req.query;
-    let sql = `SELECT i.*, s.name AS site_name FROM invoices i
-               LEFT JOIN sites s ON i.site_id = s.id WHERE 1=1`;
+    let sql = `SELECT i.*, COALESCE(s.name, i.client_name) AS site_name
+               FROM invoices i LEFT JOIN sites s ON i.site_id = s.id WHERE 1=1`;
     const params = [];
     if (site_id) { sql += ' AND i.site_id = ?'; params.push(site_id); }
     if (status)  { sql += ' AND i.status = ?';  params.push(status); }
@@ -63,24 +68,36 @@ const createInvoice = async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    const { site_id, items = [], tax_rate = 0, status, due_date, notes, date } = req.body;
+    const { site_id, client_name, items = [], tax_rate = 0, status, due_date, notes, date } = req.body;
 
     const processedItems = items.map(item => ({
       ...item,
       amount: parseFloat(item.quantity) * parseFloat(item.rate),
     }));
 
-    const subtotal   = processedItems.reduce((s, i) => s + i.amount, 0);
-    const taxAmount  = (subtotal * parseFloat(tax_rate)) / 100;
-    const total      = subtotal + taxAmount;
-    const invNumber  = await genInvoiceNumber();
+    const subtotal  = processedItems.reduce((s, i) => s + i.amount, 0);
+    const taxAmount = (subtotal * parseFloat(tax_rate)) / 100;
+    const total     = subtotal + taxAmount;
+    const invNumber = await genInvoiceNumber();
 
     const [result] = await conn.query(
-      `INSERT INTO invoices (invoice_number, site_id, subtotal, tax_rate, tax_amount, total, status, due_date, notes, date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [invNumber, site_id, subtotal, tax_rate, taxAmount, total,
-       status || 'unpaid', due_date || null, notes || null,
-       date || new Date().toISOString().split('T')[0], req.admin.id]
+      `INSERT INTO invoices
+        (invoice_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, due_date, notes, date, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        invNumber,
+        site_id || null,
+        client_name || null,
+        subtotal,
+        tax_rate,
+        taxAmount,
+        total,
+        status || 'unpaid',
+        due_date || null,
+        notes || null,
+        date || new Date().toISOString().split('T')[0],
+        req.admin.id,
+      ]
     );
 
     const invoiceId = result.insertId;
@@ -106,15 +123,19 @@ const updateInvoice = async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    const { items, tax_rate, status, due_date, notes, date } = req.body;
+    const { items, tax_rate, status, due_date, notes, date, client_name } = req.body;
     const id = req.params.id;
 
     const [check] = await conn.query('SELECT id FROM invoices WHERE id = ?', [id]);
-    if (!check.length) { await conn.rollback(); return res.status(404).json({ message: 'Invoice not found' }); }
+    if (!check.length) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Invoice not found' });
+    }
 
     if (items) {
       const processedItems = items.map(item => ({
-        ...item, amount: parseFloat(item.quantity) * parseFloat(item.rate),
+        ...item,
+        amount: parseFloat(item.quantity) * parseFloat(item.rate),
       }));
       const subtotal  = processedItems.reduce((s, i) => s + i.amount, 0);
       const tr        = parseFloat(tax_rate || 0);
@@ -122,9 +143,14 @@ const updateInvoice = async (req, res) => {
       const total     = subtotal + taxAmount;
 
       await conn.query(
-        'UPDATE invoices SET subtotal=?, tax_rate=?, tax_amount=?, total=?, status=?, due_date=?, notes=?, date=? WHERE id=?',
-        [subtotal, tr, taxAmount, total, status || 'unpaid', due_date || null, notes || null,
-         date || new Date().toISOString().split('T')[0], id]
+        `UPDATE invoices
+         SET subtotal=?, tax_rate=?, tax_amount=?, total=?, status=?,
+             due_date=?, notes=?, date=?, client_name=?
+         WHERE id=?`,
+        [subtotal, tr, taxAmount, total, status || 'unpaid',
+         due_date || null, notes || null,
+         date || new Date().toISOString().split('T')[0],
+         client_name || null, id]
       );
       await conn.query('DELETE FROM invoice_items WHERE invoice_id = ?', [id]);
       for (const item of processedItems) {

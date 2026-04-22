@@ -22,7 +22,8 @@ const app = express();
 app.use(cors({
   origin: [
     "https://managalyogfrontend.vercel.app",
-    "https://www.mangalyogenterprise.com",
+    "https://www.mangalyogenterprise.com",  
+    "mangalyogenterprise.com",
     
 
     "http://localhost:3000"

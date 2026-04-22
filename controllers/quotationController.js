@@ -16,7 +16,8 @@ const genInvoiceNumber = async (conn) => {
 // Helper: get full quotation with items + site
 const getFullQuotation = async (id) => {
   const [rows] = await pool.query(
-    `SELECT q.*, s.name, s.address, s.owner_name, s.phone, s.gst_number, s.project_name
+    `SELECT q.*, COALESCE(s.name, q.client_name) AS display_name,
+            s.address, s.owner_name, s.phone, s.gst_number, s.project_name
      FROM quotations q LEFT JOIN sites s ON q.site_id = s.id WHERE q.id = ?`,
     [id]
   );
@@ -30,9 +31,13 @@ const getFullQuotation = async (id) => {
   return {
     ...quot,
     site: {
-      id: quot.site_id, name: quot.name, address: quot.address,
-      owner_name: quot.owner_name, phone: quot.phone,
-      gst_number: quot.gst_number, project_name: quot.project_name,
+      id: quot.site_id,
+      name: quot.display_name,
+      address: quot.address,
+      owner_name: quot.owner_name,
+      phone: quot.phone,
+      gst_number: quot.gst_number,
+      project_name: quot.project_name,
     },
     items,
   };
@@ -42,8 +47,8 @@ const getFullQuotation = async (id) => {
 const getAllQuotations = async (req, res) => {
   try {
     const { site_id, status } = req.query;
-    let sql = `SELECT q.*, s.name AS site_name FROM quotations q
-               LEFT JOIN sites s ON q.site_id = s.id WHERE 1=1`;
+    let sql = `SELECT q.*, COALESCE(s.name, q.client_name) AS site_name
+               FROM quotations q LEFT JOIN sites s ON q.site_id = s.id WHERE 1=1`;
     const params = [];
     if (site_id) { sql += ' AND q.site_id = ?'; params.push(site_id); }
     if (status)  { sql += ' AND q.status = ?';  params.push(status); }
@@ -68,10 +73,13 @@ const createQuotation = async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    const { site_id, items = [], tax_rate = 0, status, valid_until, notes, date } = req.body;
+    const { site_id, client_name, items = [], tax_rate = 0, status, valid_until, notes, date } = req.body;
 
+console.log('REQ BODY:', req.body);          // ← add this
+console.log('CLIENT NAME:', client_name);    // ← add this
     const processedItems = items.map(item => ({
-      ...item, amount: parseFloat(item.quantity) * parseFloat(item.rate),
+      ...item,
+      amount: parseFloat(item.quantity) * parseFloat(item.rate),
     }));
 
     const subtotal  = processedItems.reduce((s, i) => s + i.amount, 0);
@@ -80,11 +88,23 @@ const createQuotation = async (req, res) => {
     const quotNum   = await genQuotationNumber();
 
     const [result] = await conn.query(
-      `INSERT INTO quotations (quotation_number, site_id, subtotal, tax_rate, tax_amount, total, status, valid_until, notes, date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [quotNum, site_id, subtotal, tax_rate, taxAmount, total,
-       status || 'draft', valid_until || null, notes || null,
-       date || new Date().toISOString().split('T')[0], req.admin.id]
+      `INSERT INTO quotations
+        (quotation_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, valid_until, notes, date, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        quotNum,
+        site_id || null,
+        client_name || null,
+        subtotal,
+        tax_rate,
+        taxAmount,
+        total,
+        status || 'draft',
+        valid_until || null,
+        notes || null,
+        date || new Date().toISOString().split('T')[0],
+        req.admin.id,
+      ]
     );
 
     const quotId = result.insertId;
@@ -110,15 +130,19 @@ const updateQuotation = async (req, res) => {
   try {
     await conn.beginTransaction();
 
-    const { items, tax_rate, status, valid_until, notes, date } = req.body;
+    const { items, tax_rate, status, valid_until, notes, date, client_name } = req.body;
     const id = req.params.id;
 
     const [check] = await conn.query('SELECT id FROM quotations WHERE id = ?', [id]);
-    if (!check.length) { await conn.rollback(); return res.status(404).json({ message: 'Quotation not found' }); }
+    if (!check.length) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Quotation not found' });
+    }
 
     if (items) {
       const processedItems = items.map(item => ({
-        ...item, amount: parseFloat(item.quantity) * parseFloat(item.rate),
+        ...item,
+        amount: parseFloat(item.quantity) * parseFloat(item.rate),
       }));
       const subtotal  = processedItems.reduce((s, i) => s + i.amount, 0);
       const tr        = parseFloat(tax_rate || 0);
@@ -126,9 +150,14 @@ const updateQuotation = async (req, res) => {
       const total     = subtotal + taxAmount;
 
       await conn.query(
-        'UPDATE quotations SET subtotal=?, tax_rate=?, tax_amount=?, total=?, status=?, valid_until=?, notes=?, date=? WHERE id=?',
-        [subtotal, tr, taxAmount, total, status || 'draft', valid_until || null,
-         notes || null, date || new Date().toISOString().split('T')[0], id]
+        `UPDATE quotations
+         SET subtotal=?, tax_rate=?, tax_amount=?, total=?, status=?,
+             valid_until=?, notes=?, date=?, client_name=?
+         WHERE id=?`,
+        [subtotal, tr, taxAmount, total, status || 'draft',
+         valid_until || null, notes || null,
+         date || new Date().toISOString().split('T')[0],
+         client_name || null, id]
       );
       await conn.query('DELETE FROM quotation_items WHERE quotation_id = ?', [id]);
       for (const item of processedItems) {
@@ -170,7 +199,10 @@ const convertToInvoice = async (req, res) => {
     await conn.beginTransaction();
 
     const [quotRows] = await conn.query('SELECT * FROM quotations WHERE id = ?', [req.params.id]);
-    if (!quotRows.length) { await conn.rollback(); return res.status(404).json({ message: 'Quotation not found' }); }
+    if (!quotRows.length) {
+      await conn.rollback();
+      return res.status(404).json({ message: 'Quotation not found' });
+    }
 
     const quot = quotRows[0];
     if (quot.status === 'converted') {
@@ -182,10 +214,21 @@ const convertToInvoice = async (req, res) => {
     const invNumber = await genInvoiceNumber(conn);
 
     const [invResult] = await conn.query(
-      `INSERT INTO invoices (invoice_number, site_id, subtotal, tax_rate, tax_amount, total, status, notes, date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?)`,
-      [invNumber, quot.site_id, quot.subtotal, quot.tax_rate, quot.tax_amount,
-       quot.total, quot.notes, new Date().toISOString().split('T')[0], req.admin.id]
+      `INSERT INTO invoices
+        (invoice_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, notes, date, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?)`,
+      [
+        invNumber,
+        quot.site_id || null,
+        quot.client_name || null,
+        quot.subtotal,
+        quot.tax_rate,
+        quot.tax_amount,
+        quot.total,
+        quot.notes,
+        new Date().toISOString().split('T')[0],
+        req.admin.id,
+      ]
     );
 
     const invoiceId = invResult.insertId;
@@ -203,12 +246,8 @@ const convertToInvoice = async (req, res) => {
 
     await conn.commit();
 
-    const inv = await (async () => {
-      const [r] = await pool.query('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
-      return r[0];
-    })();
-
-    res.status(201).json({ invoice: inv, message: 'Quotation converted to invoice successfully' });
+    const [invRows] = await pool.query('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
+    res.status(201).json({ invoice: invRows[0], message: 'Quotation converted to invoice successfully' });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ message: err.message });
