@@ -24,6 +24,7 @@ app.use(cors({
     "https://managalyogfrontend.vercel.app",
     "https://www.mangalyogenterprise.com",  
     "mangalyogenterprise.com",
+    "https://rp-taupe-two.vercel.app/",
     
 
     "http://localhost:3000"
