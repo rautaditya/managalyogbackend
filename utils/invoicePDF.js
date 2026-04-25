@@ -126,6 +126,36 @@ function drawHeader(doc, data, type, PW, PH, L, R) {
 
   doc.moveTo(rxL, T + 50).lineTo(R, T + 50).lineWidth(0.8).strokeColor(BLACK).stroke();
 
+  // ✅ STATUS BADGE — invoice only
+  if (type === 'Invoice' && data.status) {
+    const statusStyles = {
+  'Tax Invoice':      { bg: '#dcfce7', border: '#16a34a', text: '#166534' },
+  'Proforma Invoice': { bg: '#fee2e2', border: '#dc2626', text: '#991b1b' },
+};
+
+const style = statusStyles[data.status] || { bg: '#f1f5f9', border: '#94a3b8', text: '#1e293b' };
+    const label = data.status.toUpperCase();
+
+    const badgeW = 72;
+    const badgeH = 18;
+    const badgeX = R - badgeW;
+    const badgeY = T + 56;
+
+    // Badge background
+    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 4)
+      .fillAndStroke(style.bg, style.border);
+
+    // Badge text
+    doc.font('Helvetica-Bold')
+      .fontSize(8)
+      .fillColor(style.text)
+      .text(label, badgeX, badgeY + 5, {
+        width: badgeW,
+        align: 'center',
+        lineBreak: false,
+      });
+  }
+
   doc.moveTo(L, 112).lineTo(R, 112).lineWidth(0.5).strokeColor('#BBBBBB').stroke();
 
   doc.rect(0, PH - 12, PW, 12).fill(ORANGE);
