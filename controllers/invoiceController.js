@@ -128,7 +128,7 @@ const createInvoice = async (req, res) => {
         taxAmount,
         total,
         Number(advance_amount || 0),
-(status && status.trim()) ? status.trim() : 'Tax Invoice',,
+(status && status.trim()) ? status.trim() : 'Tax Invoice',
         due_date || null,
         notes || null,
         date || new Date().toISOString().split('T')[0],
@@ -136,6 +136,9 @@ const createInvoice = async (req, res) => {
 
       ]
     );
+
+
+    
 
     const invoiceId = result.insertId;
 
@@ -207,7 +210,7 @@ const updateInvoice = async (req, res) => {
           tr,
           taxAmount,
           total,
-(status && status.trim()) ? status.trim() : 'Tax Invoice',,
+(status && status.trim()) ? status.trim() : 'Tax Invoice',
           due_date || null,
           notes || null,
           date || new Date().toISOString().split('T')[0],
