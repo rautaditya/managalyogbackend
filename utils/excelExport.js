@@ -7,15 +7,15 @@ const exportTransactionsToExcel = async (transactions, siteName = 'All Sites') =
 
   const sheet = workbook.addWorksheet(`${siteName} - Transactions`);
 
-  sheet.columns = [
-    { header: '', key: 'date',         width: 14 },
-    { header: '', key: 'name',         width: 22 },
-    { header: '', key: 'description',  width: 30 },
-    { header: '', key: 'type',         width: 8  },
-    { header: '', key: 'amount',       width: 14 },
-    { header: '', key: 'payment_mode', width: 14 },
-    { header: '', key: 'note',         width: 25 },
-  ];
+ sheet.columns = [
+  { header: '', key: 'date',         width: 14 },
+  { header: '', key: 'name',         width: 22 },
+  { header: '', key: 'note',         width: 30 }, // swapped
+  { header: '', key: 'type',         width: 8  },
+  { header: '', key: 'amount',       width: 14 },
+  { header: '', key: 'payment_mode', width: 14 },
+  { header: '', key: 'description',  width: 25 }, // swapped
+];
 
   // ── Row 1: MangalYog Enterprises title ──
   sheet.insertRow(1, ['MangalYog Enterprises', '', '', '', '', '', '']);
@@ -27,8 +27,8 @@ const exportTransactionsToExcel = async (transactions, siteName = 'All Sites') =
   sheet.getRow(1).height = 28;
 
   // ── Row 2: Column headers ──
-  const headers = ['Date', 'Name', 'Description', 'Type', 'Amount (Rs.)', 'Payment Mode', 'Note'];
-  sheet.insertRow(2, headers);
+const headers = ['Date', 'Name', 'Note', 'Type', 'Amount (Rs.)', 'Payment Mode', 'Description'];
+sheet.insertRow(2, headers);
   const headerRow = sheet.getRow(2);
   headerRow.font      = { bold: true, color: { argb: 'FFFFFFFF' } };
   headerRow.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E40AF' } };
@@ -39,14 +39,14 @@ const exportTransactionsToExcel = async (transactions, siteName = 'All Sites') =
 
   transactions.forEach((txn) => {
     const row = sheet.addRow({
-      date:         new Date(txn.date).toLocaleDateString('en-IN'),
-      name:         txn.name,
-      description:  txn.description || '',
-      type:         txn.type,
-      amount:       parseFloat(txn.amount),
-      payment_mode: txn.payment_mode,
-      note:         txn.note || '',
-    });
+  date:         new Date(txn.date).toLocaleDateString('en-IN'),
+  name:         txn.name,
+  note:         txn.description || '',  // swapped
+  type:         txn.type,
+  amount:       parseFloat(txn.amount),
+  payment_mode: txn.payment_mode,
+  description:  txn.note || '',         // swapped
+});
 
     row.getCell('type').font = {
       color: { argb: txn.type === 'IN' ? 'FF16A34A' : 'FFDC2626' },

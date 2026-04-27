@@ -26,6 +26,7 @@ app.use(cors({
     "mangalyogenterprise.com",
     "https://rp-taupe-two.vercel.app/",
     
+    
 
     "http://localhost:3000"
   ],
