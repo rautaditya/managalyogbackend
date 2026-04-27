@@ -132,7 +132,8 @@ const createInvoice = async (req, res) => {
         due_date || null,
         notes || null,
         date || new Date().toISOString().split('T')[0],
-        req.admin.id,
+        req.admin?.id || null,
+
       ]
     );
 
