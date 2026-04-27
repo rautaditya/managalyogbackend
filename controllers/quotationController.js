@@ -1,14 +1,17 @@
 const { pool } = require('../config/db');
 const { generatePDF } = require('../utils/invoicePDF');
 
+// With this:
 const genQuotationNumber = async () => {
-  const [rows] = await pool.query('SELECT COUNT(*) AS cnt FROM quotations');
-  return `MYE-${String(rows[0].cnt + 1).padStart(5, '0')}`;
+  const [rows] = await pool.query('SELECT MAX(id) AS maxId FROM quotations');
+  const nextId = (rows[0].maxId || 0) + 1;
+  return `MYE-${String(nextId).padStart(5, '0')}`;
 };
-
-const genInvoiceNumber = async (conn) => {
-  const [rows] = await conn.query('SELECT COUNT(*) AS cnt FROM invoices');
-  return `INV-${String(rows[0].cnt + 1).padStart(5, '0')}`;
+// In invoices.controller.js:
+const genInvoiceNumber = async () => {
+  const [rows] = await pool.query('SELECT MAX(id) AS maxId FROM invoices');
+  const nextId = (rows[0].maxId || 0) + 1;
+  return `INV-${String(nextId).padStart(5, '0')}`;
 };
 
 const getFullQuotation = async (id) => {
