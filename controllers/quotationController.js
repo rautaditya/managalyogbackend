@@ -1,13 +1,390 @@
+// const { pool } = require('../config/db');
+// const { generatePDF } = require('../utils/invoicePDF');
+
+// // With this:
+// const genQuotationNumber = async () => {
+//   const [rows] = await pool.query('SELECT MAX(id) AS maxId FROM quotations');
+//   const nextId = (rows[0].maxId || 0) + 1;
+//   return `MYE-${String(nextId).padStart(5, '0')}`;
+// };
+// // In invoices.controller.js:
+// const genInvoiceNumber = async () => {
+//   const [rows] = await pool.query('SELECT MAX(id) AS maxId FROM invoices');
+//   const nextId = (rows[0].maxId || 0) + 1;
+//   return `INV-${String(nextId).padStart(5, '0')}`;
+// };
+
+// const getFullQuotation = async (id) => {
+//   const [rows] = await pool.query(
+//     `SELECT q.*, COALESCE(s.name, q.client_name) AS display_name,
+//             s.address, s.owner_name, s.phone, s.gst_number, s.project_name
+//      FROM quotations q 
+//      LEFT JOIN sites s ON q.site_id = s.id 
+//      WHERE q.id = ?`,
+//     [id]
+//   );
+
+//   if (!rows.length) return null;
+
+//   const quot = rows[0];
+
+//   const [items] = await pool.query(
+//     'SELECT * FROM quotation_items WHERE quotation_id = ? ORDER BY id',
+//     [id]
+//   );
+
+//   return {
+//     ...quot,
+//     advance_amount: Number(quot.advance_amount || 0),
+//     site: {
+//       id: quot.site_id,
+//       name: quot.display_name,
+//       address: quot.address,
+//       owner_name: quot.owner_name,
+//       phone: quot.phone,
+//       gst_number: quot.gst_number,
+//       project_name: quot.project_name,
+//     },
+//     items,
+//   };
+// };
+
+// const getAllQuotations = async (req, res) => {
+//   try {
+//     const { site_id, status } = req.query;
+
+//     let sql = `SELECT q.*, COALESCE(s.name, q.client_name) AS site_name
+//                FROM quotations q 
+//                LEFT JOIN sites s ON q.site_id = s.id 
+//                WHERE 1=1`;
+
+//     const params = [];
+
+//     if (site_id) {
+//       sql += ' AND q.site_id = ?';
+//       params.push(site_id);
+//     }
+
+//     if (status) {
+//       sql += ' AND q.status = ?';
+//       params.push(status);
+//     }
+
+//     sql += ' ORDER BY q.created_at DESC';
+
+//     const [rows] = await pool.query(sql, params);
+//     res.json(rows);
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// const getQuotationById = async (req, res) => {
+//   try {
+//     const quot = await getFullQuotation(req.params.id);
+
+//     if (!quot) {
+//       return res.status(404).json({ message: 'Quotation not found' });
+//     }
+
+//     res.json(quot);
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// const createQuotation = async (req, res) => {
+//   const conn = await pool.getConnection();
+
+//   try {
+//     await conn.beginTransaction();
+
+//     const {
+//       site_id,
+//       client_name,
+//       items = [],
+//       tax_rate = 0,
+//       status,
+//       valid_until,
+//       notes,
+//       date,
+//       advance_amount = 0,
+//     } = req.body;
+
+//     const processedItems = items.map((item) => ({
+//       ...item,
+//       amount: Number(item.quantity || 0) * Number(item.rate || 0),
+//     }));
+
+//     const subtotal = processedItems.reduce((s, i) => s + Number(i.amount || 0), 0);
+//     const taxAmount = (subtotal * Number(tax_rate || 0)) / 100;
+//     const total = subtotal + taxAmount;
+//     const quotNum = await genQuotationNumber();
+
+//     const [result] = await conn.query(
+//       `INSERT INTO quotations
+//         (quotation_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, valid_until, notes, date, created_by, advance_amount)
+//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//       [
+//         quotNum,
+//         site_id || null,
+//         client_name || null,
+//         subtotal,
+//         Number(tax_rate || 0),
+//         taxAmount,
+//         total,
+//         status || 'draft',
+//         valid_until || null,
+//         notes || null,
+//         date || new Date().toISOString().split('T')[0],
+//         req.admin.id,
+//         Number(advance_amount || 0),
+//       ]
+//     );
+
+//     const quotId = result.insertId;
+
+//     for (const item of processedItems) {
+//       await conn.query(
+//         'INSERT INTO quotation_items (quotation_id, description, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)',
+//         [quotId, item.description, item.quantity, item.rate, item.amount]
+//       );
+//     }
+
+//     await conn.commit();
+
+//     const quot = await getFullQuotation(quotId);
+//     res.status(201).json(quot);
+//   } catch (err) {
+//     await conn.rollback();
+//     res.status(500).json({ message: err.message });
+//   } finally {
+//     conn.release();
+//   }
+// };
+
+// const updateQuotation = async (req, res) => {
+//   const conn = await pool.getConnection();
+
+//   try {
+//     await conn.beginTransaction();
+
+//     const {
+//       items,
+//       tax_rate,
+//       status,
+//       valid_until,
+//       notes,
+//       date,
+//       client_name,
+//       advance_amount = 0,
+//     } = req.body;
+
+//     const id = req.params.id;
+
+//     const [check] = await conn.query('SELECT id FROM quotations WHERE id = ?', [id]);
+
+//     if (!check.length) {
+//       await conn.rollback();
+//       return res.status(404).json({ message: 'Quotation not found' });
+//     }
+
+//     if (items) {
+//       const processedItems = items.map((item) => ({
+//         ...item,
+//         amount: Number(item.quantity || 0) * Number(item.rate || 0),
+//       }));
+
+//       const subtotal = processedItems.reduce((s, i) => s + Number(i.amount || 0), 0);
+//       const tr = Number(tax_rate || 0);
+//       const taxAmount = (subtotal * tr) / 100;
+//       const total = subtotal + taxAmount;
+
+//       await conn.query(
+//         `UPDATE quotations
+//          SET subtotal=?, tax_rate=?, tax_amount=?, total=?, status=?,
+//              valid_until=?, notes=?, date=?, client_name=?, advance_amount=?
+//          WHERE id=?`,
+//         [
+//           subtotal,
+//           tr,
+//           taxAmount,
+//           total,
+//           status || 'draft',
+//           valid_until || null,
+//           notes || null,
+//           date || new Date().toISOString().split('T')[0],
+//           client_name || null,
+//           Number(advance_amount || 0),
+//           id,
+//         ]
+//       );
+
+//       await conn.query('DELETE FROM quotation_items WHERE quotation_id = ?', [id]);
+
+//       for (const item of processedItems) {
+//         await conn.query(
+//           'INSERT INTO quotation_items (quotation_id, description, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)',
+//           [id, item.description, item.quantity, item.rate, item.amount]
+//         );
+//       }
+//     } else {
+//       await conn.query(
+//         `UPDATE quotations 
+//          SET status=?, valid_until=?, notes=?, advance_amount=? 
+//          WHERE id=?`,
+//         [
+//           status,
+//           valid_until || null,
+//           notes || null,
+//           Number(advance_amount || 0),
+//           id,
+//         ]
+//       );
+//     }
+
+//     await conn.commit();
+
+//     const quot = await getFullQuotation(id);
+//     res.json(quot);
+//   } catch (err) {
+//     await conn.rollback();
+//     res.status(500).json({ message: err.message });
+//   } finally {
+//     conn.release();
+//   }
+// };
+
+// const deleteQuotation = async (req, res) => {
+//   try {
+//     const [check] = await pool.query('SELECT id FROM quotations WHERE id = ?', [req.params.id]);
+
+//     if (!check.length) {
+//       return res.status(404).json({ message: 'Quotation not found' });
+//     }
+
+//     await pool.query('DELETE FROM quotations WHERE id = ?', [req.params.id]);
+
+//     res.json({ message: 'Quotation deleted' });
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// const convertToInvoice = async (req, res) => {
+//   const conn = await pool.getConnection();
+
+//   try {
+//     await conn.beginTransaction();
+
+//     const [quotRows] = await conn.query('SELECT * FROM quotations WHERE id = ?', [req.params.id]);
+
+//     if (!quotRows.length) {
+//       await conn.rollback();
+//       return res.status(404).json({ message: 'Quotation not found' });
+//     }
+
+//     const quot = quotRows[0];
+
+//     if (quot.status === 'converted') {
+//       await conn.rollback();
+//       return res.status(400).json({ message: 'Already converted to invoice' });
+//     }
+
+//     const [items] = await conn.query(
+//       'SELECT * FROM quotation_items WHERE quotation_id = ?',
+//       [quot.id]
+//     );
+
+//     const invNumber = await genInvoiceNumber(conn);
+
+//     const [invResult] = await conn.query(
+//       `INSERT INTO invoices
+//         (invoice_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, notes, date, created_by, advance_amount)
+//        VALUES (?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?, ?)`,
+//       [
+//         invNumber,
+//         quot.site_id || null,
+//         quot.client_name || null,
+//         quot.subtotal || 0,
+//         quot.tax_rate || 0,
+//         quot.tax_amount || 0,
+//         quot.total || 0,
+//         quot.notes || null,
+//         new Date().toISOString().split('T')[0],
+//         req.admin.id,
+//         quot.advance_amount || 0,
+//       ]
+//     );
+
+//     const invoiceId = invResult.insertId;
+
+//     for (const item of items) {
+//       await conn.query(
+//         'INSERT INTO invoice_items (invoice_id, description, quantity, rate, amount) VALUES (?, ?, ?, ?, ?)',
+//         [invoiceId, item.description, item.quantity, item.rate, item.amount]
+//       );
+//     }
+
+//     await conn.query(
+//       'UPDATE quotations SET status="converted", converted_invoice_id=? WHERE id=?',
+//       [invoiceId, quot.id]
+//     );
+
+//     await conn.commit();
+
+//     const [invRows] = await pool.query('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
+
+//     res.status(201).json({
+//       invoice: invRows[0],
+//       message: 'Quotation converted to invoice successfully',
+//     });
+//   } catch (err) {
+//     await conn.rollback();
+//     res.status(500).json({ message: err.message });
+//   } finally {
+//     conn.release();
+//   }
+// };
+
+// const downloadPDF = async (req, res) => {
+//   try {
+//     const quot = await getFullQuotation(req.params.id);
+
+//     if (!quot) {
+//       return res.status(404).json({ message: 'Quotation not found' });
+//     }
+
+//     const doc = generatePDF(quot, 'Quotation');
+
+//     res.setHeader('Content-Type', 'application/pdf');
+//     res.setHeader('Content-Disposition', `attachment; filename=${quot.quotation_number}.pdf`);
+
+//     doc.pipe(res);
+//     doc.end();
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// };
+
+// module.exports = {
+//   getAllQuotations,
+//   getQuotationById,
+//   createQuotation,
+//   updateQuotation,
+//   deleteQuotation,
+//   convertToInvoice,
+//   downloadPDF,
+// };
 const { pool } = require('../config/db');
 const { generatePDF } = require('../utils/invoicePDF');
 
-// With this:
 const genQuotationNumber = async () => {
   const [rows] = await pool.query('SELECT MAX(id) AS maxId FROM quotations');
   const nextId = (rows[0].maxId || 0) + 1;
   return `MYE-${String(nextId).padStart(5, '0')}`;
 };
-// In invoices.controller.js:
+
 const genInvoiceNumber = async () => {
   const [rows] = await pool.query('SELECT MAX(id) AS maxId FROM invoices');
   const nextId = (rows[0].maxId || 0) + 1;
@@ -16,10 +393,16 @@ const genInvoiceNumber = async () => {
 
 const getFullQuotation = async (id) => {
   const [rows] = await pool.query(
-    `SELECT q.*, COALESCE(s.name, q.client_name) AS display_name,
-            s.address, s.owner_name, s.phone, s.gst_number, s.project_name
-     FROM quotations q 
-     LEFT JOIN sites s ON q.site_id = s.id 
+    `SELECT 
+        q.*,
+        COALESCE(s.name, q.client_name) AS display_name,
+        s.address AS site_address,
+        s.owner_name AS site_owner_name,
+        s.phone AS site_phone,
+        s.gst_number AS site_gst_number,
+        s.project_name AS site_project_name
+     FROM quotations q
+     LEFT JOIN sites s ON q.site_id = s.id
      WHERE q.id = ?`,
     [id]
   );
@@ -39,11 +422,11 @@ const getFullQuotation = async (id) => {
     site: {
       id: quot.site_id,
       name: quot.display_name,
-      address: quot.address,
-      owner_name: quot.owner_name,
-      phone: quot.phone,
-      gst_number: quot.gst_number,
-      project_name: quot.project_name,
+      address: quot.site_address || quot.address,
+      owner_name: quot.site_owner_name,
+      phone: quot.site_phone || quot.phone,
+      gst_number: quot.site_gst_number || quot.gst_number,
+      project_name: quot.site_project_name,
     },
     items,
   };
@@ -54,8 +437,8 @@ const getAllQuotations = async (req, res) => {
     const { site_id, status } = req.query;
 
     let sql = `SELECT q.*, COALESCE(s.name, q.client_name) AS site_name
-               FROM quotations q 
-               LEFT JOIN sites s ON q.site_id = s.id 
+               FROM quotations q
+               LEFT JOIN sites s ON q.site_id = s.id
                WHERE 1=1`;
 
     const params = [];
@@ -102,6 +485,9 @@ const createQuotation = async (req, res) => {
     const {
       site_id,
       client_name,
+      address,
+      phone,
+      gst_number,
       items = [],
       tax_rate = 0,
       status,
@@ -123,12 +509,17 @@ const createQuotation = async (req, res) => {
 
     const [result] = await conn.query(
       `INSERT INTO quotations
-        (quotation_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, valid_until, notes, date, created_by, advance_amount)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (quotation_number, site_id, client_name, address, phone, gst_number,
+         subtotal, tax_rate, tax_amount, total, status, valid_until,
+         notes, date, created_by, advance_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         quotNum,
         site_id || null,
         client_name || null,
+        address || null,
+        phone || null,
+        gst_number || null,
         subtotal,
         Number(tax_rate || 0),
         taxAmount,
@@ -177,6 +568,9 @@ const updateQuotation = async (req, res) => {
       notes,
       date,
       client_name,
+      address,
+      phone,
+      gst_number,
       advance_amount = 0,
     } = req.body;
 
@@ -203,7 +597,8 @@ const updateQuotation = async (req, res) => {
       await conn.query(
         `UPDATE quotations
          SET subtotal=?, tax_rate=?, tax_amount=?, total=?, status=?,
-             valid_until=?, notes=?, date=?, client_name=?, advance_amount=?
+             valid_until=?, notes=?, date=?, client_name=?, address=?,
+             phone=?, gst_number=?, advance_amount=?
          WHERE id=?`,
         [
           subtotal,
@@ -215,6 +610,9 @@ const updateQuotation = async (req, res) => {
           notes || null,
           date || new Date().toISOString().split('T')[0],
           client_name || null,
+          address || null,
+          phone || null,
+          gst_number || null,
           Number(advance_amount || 0),
           id,
         ]
@@ -230,8 +628,8 @@ const updateQuotation = async (req, res) => {
       }
     } else {
       await conn.query(
-        `UPDATE quotations 
-         SET status=?, valid_until=?, notes=?, advance_amount=? 
+        `UPDATE quotations
+         SET status=?, valid_until=?, notes=?, advance_amount=?
          WHERE id=?`,
         [
           status,
@@ -296,16 +694,21 @@ const convertToInvoice = async (req, res) => {
       [quot.id]
     );
 
-    const invNumber = await genInvoiceNumber(conn);
+    const invNumber = await genInvoiceNumber();
 
     const [invResult] = await conn.query(
       `INSERT INTO invoices
-        (invoice_number, site_id, client_name, subtotal, tax_rate, tax_amount, total, status, notes, date, created_by, advance_amount)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?, ?)`,
+        (invoice_number, site_id, client_name, address, phone, gst_number,
+         subtotal, tax_rate, tax_amount, total, status, notes, date,
+         created_by, advance_amount)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid', ?, ?, ?, ?)`,
       [
         invNumber,
         quot.site_id || null,
         quot.client_name || null,
+        quot.address || null,
+        quot.phone || null,
+        quot.gst_number || null,
         quot.subtotal || 0,
         quot.tax_rate || 0,
         quot.tax_amount || 0,
