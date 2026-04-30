@@ -14,11 +14,11 @@ const getAllTransactions = async (req, res) => {
     `;
     const params = [];
 
-    if (site_id)    { sql += ' AND t.site_id = ?';       params.push(site_id); }
-    if (type)       { sql += ' AND t.type = ?';           params.push(type); }
-    if (payment_mode) { sql += ' AND t.payment_mode = ?'; params.push(payment_mode); }
-    if (start_date) { sql += ' AND t.date >= ?';          params.push(start_date); }
-    if (end_date)   { sql += ' AND t.date <= ?';          params.push(end_date); }
+    if (site_id)      { sql += ' AND t.site_id = ?';       params.push(site_id); }
+    if (type)         { sql += ' AND t.type = ?';           params.push(type); }
+    if (payment_mode) { sql += ' AND t.payment_mode = ?';   params.push(payment_mode); }
+    if (start_date)   { sql += ' AND t.date >= ?';          params.push(start_date); }
+    if (end_date)     { sql += ' AND t.date <= ?';          params.push(end_date); }
 
     sql += ' ORDER BY t.date DESC, t.created_at DESC';
     const [rows] = await pool.query(sql, params);
@@ -35,7 +35,6 @@ const getDashboardSummary = async (req, res) => {
         SUM(CASE WHEN type='OUT' THEN amount ELSE 0 END) AS totalOut
       FROM transactions
     `);
-
     const [recent] = await pool.query(`
       SELECT t.*, s.name AS site_name
       FROM transactions t
@@ -43,16 +42,9 @@ const getDashboardSummary = async (req, res) => {
       ORDER BY t.date DESC, t.created_at DESC
       LIMIT 10
     `);
-
     const totalIn  = parseFloat(totals[0].totalIn  || 0);
     const totalOut = parseFloat(totals[0].totalOut || 0);
-
-    res.json({
-      totalIn,
-      totalOut,
-      balance: totalIn - totalOut,
-      recentTransactions: recent,
-    });
+    res.json({ totalIn, totalOut, balance: totalIn - totalOut, recentTransactions: recent });
   } catch (err) { res.status(500).json({ message: err.message }); }
 };
 
@@ -118,13 +110,30 @@ const deleteTransaction = async (req, res) => {
 // GET /api/transactions/export
 const exportToExcel = async (req, res) => {
   try {
-    const { site_id } = req.query;
-    let sql = `SELECT t.*, s.name AS site_name FROM transactions t
-               LEFT JOIN sites s ON t.site_id = s.id`;
-    const params = [];
-    if (site_id) { sql += ' WHERE t.site_id = ?'; params.push(site_id); }
-    sql += ' ORDER BY t.date DESC';
+    const { site_id, type, payment_mode, start_date, end_date, search } = req.query;
 
+    let sql = `
+      SELECT t.*, s.name AS site_name
+      FROM transactions t
+      LEFT JOIN sites s ON t.site_id = s.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (site_id)      { sql += ' AND t.site_id = ?';                    params.push(site_id); }
+    if (type)         { sql += ' AND t.type = ?';                        params.push(type); }
+    if (payment_mode) { sql += ' AND t.payment_mode = ?';                params.push(payment_mode); }
+    if (start_date)   { sql += ' AND t.date >= ?';                       params.push(start_date); }
+    if (end_date)     { sql += ' AND t.date <= ?';                       params.push(end_date); }
+
+    // ── Search matches name, site name, or description ──
+    if (search) {
+      sql += ' AND (t.name LIKE ? OR s.name LIKE ? OR t.description LIKE ?)';
+      const like = `%${search}%`;
+      params.push(like, like, like);
+    }
+
+    sql += ' ORDER BY t.date DESC';
     const [transactions] = await pool.query(sql, params);
 
     let siteName = 'All Sites';
@@ -133,12 +142,38 @@ const exportToExcel = async (req, res) => {
       if (s.length) siteName = s[0].name;
     }
 
-    const workbook = await exportTransactionsToExcel(transactions, siteName);
+    const filterLabels = [];
+    if (site_id)      filterLabels.push(`Site: ${siteName}`);
+    if (type)         filterLabels.push(`Type: ${type}`);
+    if (payment_mode) filterLabels.push(`Payment: ${payment_mode}`);
+    if (start_date)   filterLabels.push(`From: ${start_date}`);
+    if (end_date)     filterLabels.push(`To: ${end_date}`);
+    if (search)       filterLabels.push(`Search: "${search}"`);   // ← shows in subtitle row
+
+    const filterSummary = filterLabels.length
+      ? filterLabels.join('  |  ')
+      : 'No filters applied';
+
+    const parts = [];
+    if (site_id)      parts.push(siteName.replace(/\s+/g, '_'));
+    if (type)         parts.push(type);
+    if (payment_mode) parts.push(payment_mode);
+    if (start_date)   parts.push(start_date);
+    if (end_date)     parts.push(end_date);
+    if (search)       parts.push(search.replace(/\s+/g, '_'));
+
+    const filename = parts.length
+      ? `transactions-${parts.join('-')}.xlsx`
+      : 'transactions-all.xlsx';
+
+    const workbook = await exportTransactionsToExcel(transactions, siteName, filterSummary);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=transactions-${siteName.replace(/\s+/g, '_')}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
     await workbook.xlsx.write(res);
     res.end();
-  } catch (err) { res.status(500).json({ message: err.message }); }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 };
 
 module.exports = {
