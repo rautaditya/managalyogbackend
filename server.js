@@ -21,13 +21,9 @@ const app = express();
 // Middleware
 app.use(cors({
   origin: [
-    "https://managalyogfrontend.vercel.app",
+   
     "https://www.mangalyogenterprise.com",  
     "mangalyogenterprise.com",
-    "https://rp-taupe-two.vercel.app/",
-    
-    
-
     "http://localhost:3000"
   ],
   credentials: true,
@@ -39,6 +35,9 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/api/health', (req, res) =>
   res.json({ status: 'OK', app: 'Mangalyog Enterprise', db: 'MySQL' })
 );
+app.get("/", (req, res) => {
+  return res.redirect(301, "https://www.mangalyogenterprise.com");
+});
 
 // API Routes
 app.use('/api/auth',         authRoutes);
